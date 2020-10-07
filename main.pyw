@@ -1,8 +1,11 @@
 from tkinter import *
 from settings import settings as ss
 from random import randint
+from colors import COLORS
 
 MOUSE_OFFSET = 2
+CON_TEXT_WIDTH = 7
+CON_HEIGHT = 12
 
 class Debug:
     def print_flags(self):
@@ -21,65 +24,118 @@ class Block(Debug):
 
     def __init__(self, canvas: Canvas, setting: dict):
         super().__init__()
-        self.setting = setting
-        self.canvas = canvas
-        self.inputs = []
-        self.inputLines = []
-        self.outputs = []
-        self.outputLines = []
-        self.texts = []
-        #calculate dimensions
-        x, y = setting['position']
-        w, h = 1, 1
-        h += max(len(setting['inputs']), len(setting['outputs']))*12
-        w2, w1 = 0, 0
-        if len(setting['inputs']) > 0:
-            w1 = max(len(input[2]) for input in setting['inputs'])*7
-        if len(setting['outputs']) > 0:
-            w2 = max(len(output[0]) for output in setting['outputs'])*7
-        w += w1 + w2
-        #create body
-        self.id = canvas.create_rectangle(x, y, x+w, y+h, outline='lightgray', fill='lightgray', tags=('block', setting['name']))
-        #draw title
-        self.name = canvas.create_text(x+w*0.5, y-12, text=setting['name'], fill='white', font='Times 12 bold', tags=('block', setting['name']))
-        offset = 0
-        #draw inputs
-        for input, dtype, inputName in setting['inputs']:
-            #if new dtype: set random color
-            if dtype not in Block.dtypes:
-                Block.dtypes[dtype] = f'#{randint(0, 255):02x}{randint(0, 255):02x}{randint(0, 255):02x}'
-            #get color associated with dtype
-            fill = Block.dtypes[dtype]
-            self.inputs.append(canvas.create_rectangle(x-6,y+3+offset,x,y+9+offset,outline=fill, fill=fill, tags=('block', 'input', setting['name'])))
-            canvas.create_text(x+w1*0.5, y+6+offset, text=inputName, fill='black', tags=('block', setting['name']))
-            offset += 12
-            self.inputLines.append(None)
-        offset = 0
-        #draw outputs
-        for output, dtype in setting['outputs']:
-            if dtype not in Block.dtypes:
-                Block.dtypes[dtype] = f'#{randint(0, 255):02x}{randint(0, 255):02x}{randint(0, 255):02x}'
-            fill = Block.dtypes[dtype]
-            self.outputs.append(canvas.create_rectangle(x+w+6,y+3+offset,x+w,y+9+offset,outline=fill, fill=fill, tags=('block', 'output', setting['name'])))
-            canvas.create_text(x+w1+w2*0.5, y+6+offset, text=output, fill='darkgreen', tags=('block', setting['name']))
-            offset += 12
-            self.outputLines.append([])
         self.flags = {
             'grabbed': None,
             'output': None,
             'input': None,
             'templine': None,
+            'setting': setting,
         }
+        self.canvas = canvas
+        self.draw()
         Block.blocks.append(self)
 
-    def is_owner(self, id):
-        if id in self.canvas.find_withtag(self.setting['name']):
+    def redraw(self):
+        for index, line in enumerate(self.inputLines):
+            if line is not None:
+                self.remove_input_line(line, index, False)
+        for output in self.outputLines:
+            for line in output:
+                Block.remove_output_line(line)
+        self.canvas.delete(self.flags['setting']['name'])
+        self.draw()
+
+    def draw_input_lines(self):
+        index = 0
+        for input, dtype, inputName in self.flags['setting']['inputs']:
+            if input is not None:
+                for block in Block.blocks:
+                    otherIndex = 0
+                    for output, dtype in block.flags['setting']['outputs']:
+                        if output == input:
+                            x1, y1, x2, y2 = self.canvas.coords(self.inputs[index])
+                            lx2 = (x1+x2)*0.5
+                            ly2 = (y1+y2)*0.5
+                            x1, y1, x2, y2 = self.canvas.coords(block.outputs[otherIndex])
+                            lx1 = (x1+x2)*0.5
+                            ly1 = (y1+y2)*0.5
+                            line = self.canvas.create_line(lx1, ly1, lx2, ly2, fill='blue')
+                            self.inputLines[index] = line
+                            block.outputLines[otherIndex].append(line)
+                            break
+                        otherIndex += 1
+            index += 1
+
+    def draw(self):
+        self.inputs = []
+        self.outputs = []
+        self.inputLines = []
+        self.outputLines = []
+        x, y, w, h, w1, w2 = self.calculate_main_rect()
+        self.draw_body(x, y, w, h)
+        self.draw_title(x, y, w)
+        self.draw_inputs(x, y, w1)
+        self.draw_outputs(x, y, w, w1, w2)
+        self.draw_input_lines()
+
+    def draw_title(self, x: float, y: float, w: float):
+        self.canvas.create_text(x+w*0.5, y-CON_HEIGHT, text=self.flags['setting']['name'], fill='white', font=f'Times {CON_HEIGHT} bold', tags=('block', 'title', self.flags['setting']['name']))
+
+    def draw_body(self, x: float, y: float, w: float, h: float):
+        self.canvas.create_rectangle(x, y, x+w, y+h, outline='lightgray', fill='lightgray', tags=('block', 'main', self.flags['setting']['name']))
+
+    def draw_outputs(self, x: float, y: float, w: float, w1: float, w2: float):
+        offset = 0
+        for output, dtype in self.flags['setting']['outputs']:
+            fill = Block.get_dtype_color(dtype)
+            self.outputs.append(self.canvas.create_rectangle(x+w+6,y+3+offset,x+w,y+9+offset,outline='white', fill=fill, tags=('block', 'output', self.flags['setting']['name'])))
+            self.canvas.create_text(x+w1+w2*0.5, y+6+offset, text=output, fill='darkgreen', tags=('block', 'outtext', self.flags['setting']['name']))
+            offset += CON_HEIGHT
+            self.outputLines.append([])
+
+    def draw_inputs(self, x: float, y: float, w1: float):
+        offset = 0
+        for input, dtype, inputName in self.flags['setting']['inputs']:
+            fill = Block.get_dtype_color(dtype)
+            self.inputs.append(self.canvas.create_rectangle(x-6,y+3+offset,x,y+9+offset,outline='white', fill=fill, tags=('block', 'input', self.flags['setting']['name'])))
+            self.canvas.create_text(x+w1*0.5, y+6+offset, text=inputName, fill='black', tags=('block', 'intext', self.flags['setting']['name']))
+            offset += CON_HEIGHT
+            self.inputLines.append(None)
+
+    @classmethod
+    def get_dtype_color(cls, dtype: str) -> str:
+        color = None
+        if dtype not in cls.dtypes:
+            #if new dtype: set random color
+            index = randint(0, len(COLORS))
+            color = COLORS.pop(index)
+            cls.dtypes[dtype] = color
+        else:
+            #get color associated with dtype
+            color = cls.dtypes[dtype]
+        return color
+
+    def calculate_main_rect(self):
+        #calculate dimensions
+        x, y = self.flags['setting']['position']
+        w, h = 1, 1
+        h += max(len(self.flags['setting']['inputs']), len(self.flags['setting']['outputs']))*CON_HEIGHT
+        w2, w1 = 0, 0
+        if len(self.flags['setting']['inputs']) > 0:
+            w1 = max(len(input[2]) for input in self.flags['setting']['inputs'])*CON_TEXT_WIDTH
+        if len(self.flags['setting']['outputs']) > 0:
+            w2 = max(len(output[0]) for output in self.flags['setting']['outputs'])*CON_TEXT_WIDTH
+        w += w1 + w2
+        return x, y, w, h, w1, w2
+
+    def is_owner(self, id: int) -> bool:
+        if id in self.canvas.find_withtag(self.flags['setting']['name']):
             return True
         else:
             return False
 
-    def move(self, dx, dy):
-        for id in self.canvas.find_withtag(self.setting['name']):
+    def move(self, dx: float, dy: float):
+        for id in self.canvas.find_withtag(self.flags['setting']['name']):
             self.canvas.move(id, dx, dy)
         for line in self.inputLines:
             if line is not None:
@@ -90,8 +146,13 @@ class Block(Debug):
                 if line is not None:
                     x1, y1, x2, y2 = self.canvas.coords(line)
                     self.canvas.coords(line, x1+dx, y1+dy, x2, y2)
+        ids1 = set(self.canvas.find_withtag(self.flags['setting']['name']))
+        ids2 = set(self.canvas.find_withtag('main'))
+        ids1 &= ids2
+        x, y, *_ = self.canvas.coords(ids1.pop())
+        self.flags['setting']['position'] = [x, y]
 
-    def on_click(self, event, current):
+    def on_click(self, event: Event, current: int):
         if current in self.inputs:
             index = self.inputs.index(current)
             self.flags['input'] = [index]
@@ -109,7 +170,7 @@ class Block(Debug):
         self.print_flags()
         return self
 
-    def on_drag(self, event):
+    def on_drag(self, event: Event):
         if self.flags['grabbed'] is not None:
             x, y = self.flags['grabbed']
             dx = event.x - x
@@ -132,13 +193,13 @@ class Block(Debug):
                 x1, y1, x2, y2 = self.canvas.coords(line)
                 self.canvas.coords(line, event.x, event.y, x2, y2)
 
-    def on_release(self, event):
+    def on_release(self, event: Event):
         if self.flags['grabbed'] is not None:
             pass
         elif self.flags['input'] is not None:
             index = self.flags['input'][0]
             line = self.inputLines[index]
-            current = self.canvas.find_overlapping(event.x-MOUSE_OFFSET, event.y-MOUSE_OFFSET, event.x+MOUSE_OFFSET, event.y+MOUSE_OFFSET)
+            current = self.find_overlapping_mouse(event.x, event.y)
             if len(current) > 0:
                 block = None
                 for cur in current:
@@ -152,15 +213,16 @@ class Block(Debug):
                     break
                 if block is not None:
                     otherIndex = block.outputs.index(current)
-                    if block.setting['outputs'][otherIndex][1] == self.setting['inputs'][index][1]:
+                    if block.flags['setting']['outputs'][otherIndex][1] == self.flags['setting']['inputs'][index][1]:
                         x1, y1, x2, y2 = self.canvas.coords(current)
                         x = (x1+x2)*0.5
                         y = (y1+y2)*0.5
                         x1, y1, x2, y2 = self.canvas.coords(line)
                         self.canvas.coords(line, x, y, x2, y2)
                         block.outputLines[otherIndex].append(self.inputLines[index])
-                        self.setting['inputs'][index][0] = block.setting['outputs'][otherIndex][0]
-                        Block.check_for_loops(self, index)
+                        self.flags['setting']['inputs'][index][0] = block.flags['setting']['outputs'][otherIndex][0]
+                        if not Block.is_looping(self, index):
+                            self.remove_input_line(line, index)
                     else:
                         self.remove_input_line(line, index)
                 else:
@@ -171,16 +233,26 @@ class Block(Debug):
         elif self.flags['output'] is not None:
             pass
         for flag in self.flags:
-            self.flags[flag] = None
+            if flag not in {'setting'}:
+                self.flags[flag] = None
 
-    def remove_input_line(self, line, index):
+    def remove_input_line(self, line: int, index: int, removeFromSetting=True):
+        """Set removeFromSetting to False if you don't want to change setting.
+        It will only remove drawing."""
         self.canvas.delete(line)
         self.inputLines[index] = None
-        self.setting['inputs'][index][0] = None
+        if removeFromSetting:
+            self.flags['setting']['inputs'][index][0] = None
         Block.remove_output_line(line)
 
+    def add_input(self, input: list):
+        self.flags['setting']['inputs'].append(input)
+
+    def find_overlapping_mouse(self, x: int, y: int) -> tuple:
+        return self.canvas.find_overlapping(x-MOUSE_OFFSET, y-MOUSE_OFFSET, x+MOUSE_OFFSET, y+MOUSE_OFFSET)
+
     @classmethod
-    def remove_output_line(cls, line):
+    def remove_output_line(cls, line: int):
         for block in cls.blocks:
             for o, output in enumerate(block.outputLines):
                 for l, _line in enumerate(output):
@@ -188,19 +260,19 @@ class Block(Debug):
                         block.outputLines[o].pop(l)
     
     @classmethod
-    def check_for_loops(cls, block, inputIndex) -> bool:
-        variables = [block.setting['inputs'][inputIndex][0]]
+    def is_looping(cls, block: object, inputIndex: int) -> bool:
+        variables = [block.flags['setting']['inputs'][inputIndex][0]]
         usedInputs = [variables[0]]
         
         while len(variables) > 0:
             for b in cls.blocks:
-                for output, dtype in b.setting['outputs']:
+                for output, dtype in b.flags['setting']['outputs']:
                     if output in variables:
                         variables.pop(variables.index(output))
-                        variables.extend([i[0] for i in b.setting['inputs'] if i[0] is not None])
+                        variables.extend([i[0] for i in b.flags['setting']['inputs'] if i[0] is not None])
                         while None in variables: variables.pop(variables.index(None))
                         if all(var not in usedInputs for var in variables):
-                            usedInputs.extend([i[0] for i in b.setting['inputs'] if i[0] is not None])
+                            usedInputs.extend([i[0] for i in b.flags['setting']['inputs'] if i[0] is not None])
                             while None in usedInputs: usedInputs.pop(usedInputs.index(None))
                         else: return False
         
@@ -219,15 +291,28 @@ class WorkBench(Canvas, Debug):
         self.bind('<ButtonPress-1>', self.on_click)
         self.bind('<B1-Motion>', self.on_drag)
         self.bind('<ButtonRelease-1>', self.on_release)
+        self.bind('<ButtonPress-2>', self.temp_)
         self.blocks = []
 
-    def add_block(self, setting):
-        duplicate = any(setting['name'] == block.setting['name'] for block in self.blocks)
+    def temp_(self, *args, **kwargs):
+        print('w')
+        for block in self.blocks:
+            block.redraw()
+
+    def add_input_by_name(self, name: str, input: list) -> bool:
+        block = [b for b in self.blocks if b.setting['name'] == name]
+        if len(block) > 0:
+            return True
+        else:
+            return False
+
+    def add_block(self, setting: dict):
+        duplicate = any(setting['name'] == block.flags['setting']['name'] for block in self.blocks)
         if duplicate:
             raise ValueError(f'Name {setting["name"]} is duplicated.')
         self.blocks.append(Block(self, setting))
         
-    def on_click(self, event):
+    def on_click(self, event: Event):
         current = self.find_overlapping(event.x-MOUSE_OFFSET, event.y-MOUSE_OFFSET, event.x+MOUSE_OFFSET, event.y+MOUSE_OFFSET)
         for cur in current:
             if cur in self.find_withtag('block'):
@@ -240,17 +325,17 @@ class WorkBench(Canvas, Debug):
         else:
             self.flags['grabbed'] = None
 
-    def on_drag(self, event):
+    def on_drag(self, event: Event):
         if self.flags['grabbed'] is not None:
             self.flags['grabbed'].on_drag(event)
 
-    def on_release(self, event):
+    def on_release(self, event: Event):
         if self.flags['grabbed'] is not None:
             self.flags['grabbed'].on_release(event)
             self.flags['grabbed'] = None
 
 class Window(Tk):
-    def __init__(self, settings, *args, **kwargs):
+    def __init__(self, settings: list, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.canvas = WorkBench(self, bg='black')
         self.canvas.pack(fill=BOTH, expand=1)
@@ -283,7 +368,7 @@ if __name__ == "__main__":
         setting = {
             'name': values[-2],
             'inputs': [
-                [None, '3Darray' if randint(0,5)%2 else '2Darray', 'input']
+                [values[1], '3Darray' if randint(0,5)%2 else '2Darray', 'input']
             ],
             'outputs': [
                 [values[-2], '3Darray' if randint(0,5)%2 else '2Darray']
