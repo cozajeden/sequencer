@@ -44,6 +44,23 @@ class Block(Debug):
                 Block.remove_output_line(line)
         self.canvas.delete(self.flags['setting']['name'])
         self.draw()
+        self.reassign_outputs()
+
+    def reassign_outputs(self):
+        outputs = [output for output, dtype in self.flags['setting']['outputs']]
+        for index, output in enumerate(outputs):
+            for block in Block.blocks:
+                otherIndex = 0
+                for input, dtype, inputName in block.flags['setting']['inputs']:
+                    if input == output:
+                        line = block.inputLines[otherIndex]
+                        self.outputLines[index].append(line)
+                        ox1, oy1, ox2, oy2 = self.canvas.coords(self.outputs[index])
+                        lx1, ly1, lx2, ly2 = self.canvas.coords(line)
+                        lx1 = (ox1 + ox2)*0.5
+                        ly1 = (oy1 + oy2)*0.5
+                        self.canvas.coords(line, lx1, ly1, lx2, ly2)
+                    otherIndex += 1
 
     def draw_input_lines(self):
         index = 0
@@ -247,6 +264,11 @@ class Block(Debug):
 
     def add_input(self, input: list):
         self.flags['setting']['inputs'].append(input)
+        self.redraw()
+
+    def add_output(self, output: list):
+        self.flags['setting']['outputs'].append(output)
+        self.redraw()
 
     def find_overlapping_mouse(self, x: int, y: int) -> tuple:
         return self.canvas.find_overlapping(x-MOUSE_OFFSET, y-MOUSE_OFFSET, x+MOUSE_OFFSET, y+MOUSE_OFFSET)
@@ -279,8 +301,6 @@ class Block(Debug):
         return True
         
 
-
-
 class WorkBench(Canvas, Debug):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -291,17 +311,23 @@ class WorkBench(Canvas, Debug):
         self.bind('<ButtonPress-1>', self.on_click)
         self.bind('<B1-Motion>', self.on_drag)
         self.bind('<ButtonRelease-1>', self.on_release)
-        self.bind('<ButtonPress-2>', self.temp_)
+        self.bind('<ButtonPress-2>', self.add_output_by_name)
         self.blocks = []
 
-    def temp_(self, *args, **kwargs):
-        print('w')
-        for block in self.blocks:
-            block.redraw()
+    def add_output_by_name(self, name: str, output: list) -> bool:
+        block = [b for b in self.blocks if b.flags['setting']['name'] == name]
+        if len(block) > 0:
+            block = block[0]
+            block.add_output(output)
+            return True
+        else:
+            return False
 
     def add_input_by_name(self, name: str, input: list) -> bool:
-        block = [b for b in self.blocks if b.setting['name'] == name]
+        block = [b for b in self.blocks if b.flags['setting']['name'] == name]
         if len(block) > 0:
+            block = block[0]
+            block.add_input(input)
             return True
         else:
             return False
